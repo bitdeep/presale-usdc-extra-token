@@ -3,12 +3,14 @@ pragma solidity 0.6.12;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "./libs/ReentrancyGuard.sol";
+import "./libs/IOracle.sol";
 
 // TokenToken
 contract PreSale is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
+    IOracle oracle;
     IERC20 tmpToken;
     IERC20 extraToken;
     IERC20 usdc;
@@ -39,19 +41,20 @@ contract PreSale is ReentrancyGuard, Ownable {
 
     uint8 public ratio;
     constructor(uint256 _startBlock, uint256 _endBlock, uint8 _ratio,
-        uint256 _PresalePrice, uint256 _ExtraTokenPrice,
+        uint256 _PresalePrice, IOracle _oracle,
         address _tmpToken, address _extraToken, address _usdc) public {
         startBlock = _startBlock;
         endBlock   = _endBlock;
         ratio = _ratio;
         PresalePrice = _PresalePrice;
-        ExtraTokenPrice = _ExtraTokenPrice;
+        oracle = _oracle;
         tmpToken = IERC20(_tmpToken);
         extraToken = IERC20(_extraToken);
         usdc = IERC20(_usdc);
         tmpToken.balanceOf(address(this));
         extraToken.balanceOf(address(this));
         usdc.balanceOf(address(this));
+
     }
 
     // return the last block for testing
@@ -73,8 +76,10 @@ contract PreSale is ReentrancyGuard, Ownable {
         uint256 amountInReceipt = quoteAmountInReceipt(amount);
         uint256 amountInUsdc = quoteAmountInUSDC(amount);
         uint256 amountInUsdcInExtraToken = amountInReceipt.sub(amountInUsdc);
-        return amountInUsdcInExtraToken.mul(1e12).div(ExtraTokenPrice).mul(1e6);
+
+        return amountInUsdcInExtraToken.mul(1e12).div(ExtraTokenPrice).mul( 1e12 );
     }
+
     // pass any pApollo and get quotes in USDC and ExtraToken
     function quoteAmounts(uint256 requestedAmount, address user) public view
     returns(uint256 ReceiptInUSD, uint256 inUsdc, uint256 amountExtraToken, uint256 limit, uint256 tokenPurchaseAmount){
@@ -108,12 +113,16 @@ contract PreSale is ReentrancyGuard, Ownable {
         require(block.number < endBlock, "presale has ended, come back next time!");
         require(tmpToken.balanceOf(address(this)) > 0, "No more Token left! Come back next time!");
 
-        (uint256 ReceiptInUSD, uint256 inUsdc, uint256 amountExtraToken, uint256 limit, uint256 tokenPurchaseAmount)
+        // ReceiptInUSD
+        (, uint256 inUsdc, uint256 amountExtraToken, uint256 limit, uint256 tokenPurchaseAmount)
         = quoteAmounts(amount, msg.sender);
+
+        getOracleExtraPrice();
+
         require(userTokenTally[msg.sender] < limit, "user has already purchased too much Token");
         require(tokenPurchaseAmount > 0, "user cannot purchase 0 Token");
         require(inUsdc > 0, "user cannot pay 0 USDC");
-        require(amountExtraToken > 0, "user cannot pay 0 ExtraToken");
+        // require(amountExtraToken > 0, "user cannot pay 0 ExtraToken");
 
         userTokenTally[msg.sender] = userTokenTally[msg.sender].add(tokenPurchaseAmount);
 
@@ -212,5 +221,9 @@ contract PreSale is ReentrancyGuard, Ownable {
 
         emit Swap(msg.sender, swapAmount);
     }
-
+    function getOracleExtraPrice() public{
+        (uint256 priceFromOracle, bool isValid) = oracle.capture();
+        if( isValid ) ExtraTokenPrice = priceFromOracle;
+        // require(isValid,"ExtraTokenPrice");
+    }
 }

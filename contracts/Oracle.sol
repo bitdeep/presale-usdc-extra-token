@@ -27,7 +27,7 @@ contract Oracle is Ownable {
         require(_index == 0 || _token == token1, "token not found");
     }
     modifier onlyOperator {
-        require(msg.sender == operator, "not operator");
+        require(msg.sender == operator || msg.sender == owner(), "not operator");
         _;
     }
     function setOracleReserve(uint256 value) public onlyOwner {
@@ -66,7 +66,6 @@ contract Oracle is Ownable {
             _timestamp = blockTimestampLast;
             _initialized = true;
             _reserve = _index == 0 ? reserve1 : reserve0;
-            // get counter's reserve
         }
     }
 
@@ -90,6 +89,9 @@ contract Oracle is Ownable {
         (uint256 price0Cumulative, uint256 price1Cumulative, uint32 blockTimestamp) =
         UniswapV2OracleLibrary.currentCumulativePrices(address(_pair));
         uint32 timeElapsed = blockTimestamp - _timestamp;
+        if( timeElapsed == 0 ){
+            return _price;
+        }
         // overflow is desired
         uint256 priceCumulative = _index == 0 ? price0Cumulative : price1Cumulative;
         Decimal.D256 memory price = Decimal.ratio((priceCumulative - _cumulative) / timeElapsed, 2 ** 112);

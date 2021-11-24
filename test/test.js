@@ -5,14 +5,16 @@ const {expect} = require('chai');
 const Token = contract.fromArtifact('FaucetERC20');
 const Token6 = contract.fromArtifact('FaucetERC20');
 const Token9 = contract.fromArtifact('FaucetERC20');
-const ctx = contract.fromArtifact('PreSale');
+const PreSale = contract.fromArtifact('PreSale');
 // > uniswap
 const WETH = contract.fromArtifact("WETH");
 const IUniswapV2Pair = contract.fromArtifact("IUniswapV2Pair");
 const UniswapV2Factory = contract.fromArtifact("UniswapV2Factory");
 const UniswapV2Router02 = contract.fromArtifact("UniswapV2Router02");
-
 // < uniswap
+
+const Oracle = contract.fromArtifact('Oracle');
+
 const chalk = require('chalk');
 let _yellowBright = chalk.yellowBright;
 let _magenta = chalk.magenta;
@@ -77,12 +79,15 @@ function fromMwei(v) {
 function toMwei(v) {
     return web3.utils.toWei(v.toString(), 'mwei'); // 1e6
 }
+
 function now() {
     return parseInt((new Date().getTime()) / 1000);
 }
+
 function hours(total) {
     return parseInt(60 * 60 * total);
 }
+
 const ONEg = toGwei('1'); // extra
 const DEZg = toGwei('10');
 const CEMg = toGwei('100');
@@ -103,71 +108,128 @@ const CEMw = toWei('100');
 const qMILw = toWei('500000');
 const MILw = toWei('1000000');
 
-describe('ctx', function () {
+describe('PreSale', function () {
     beforeEach(async function () {
         this.timeout(0);
         dev = accounts[0];
         user = accounts[1];
         fee = accounts[2];
         amount = web3.utils.toWei('120000');
-        this.Token = await Token.new("TOKEN","TOKEN",0,18, {from: dev});
-        this.Final = await Token.new("FINAL","FINAL",0,18,{from: dev});
-        this.Usdc = await Token6.new("USDC","USDC",MILm,6,{from: dev});
-        this.Extra = await Token9.new("EXTRA","EXTRA",Qg,9,{from: dev});
+        this.Token = await Token.new("TOKEN", "TOKEN", 0, 18, {from: dev});
+        this.Final = await Token.new("FINAL", "FINAL", 0, 18, {from: dev});
+        this.Usdc = await Token6.new("USDC", "USDC", MILm, 6, {from: dev});
+
+        // console.log('Qg', Qg.toString())
+        this.Extra = await Token9.new("EXTRA", "EXTRA", Qg, 9, {from: dev});
 
         // uniswap
         this.weth = await WETH.new({from: dev});
         this.factory = await UniswapV2Factory.new({from: dev});
+        // console.log( await this.factory.pairCodeHash() );
         this.router = await UniswapV2Router02.new({from: dev});
         await this.router.init(this.factory.address, this.weth.address, {from: dev});
         // uniswap
 
-        await this.factory.createPair(this.Extra.address, this.weth.address);
-        this.pairAddr = await this.factory.getPair(this.Extra.address, this.weth.address);
+        await this.factory.createPair(this.Extra.address, this.Usdc.address);
+        this.pairAddr = await this.factory.getPair(this.Extra.address, this.Usdc.address);
         this.pair = await IUniswapV2Pair.at(this.pairAddr);
-        await this.router.addLiquidityETH(this.Extra.address, qQg, 0, 0, dev, now() + 60, {from: dev, value: ONE});
+        await this.Extra.approve(this.router.address, MILw, {from: dev});
+        await this.Usdc.approve(this.router.address, MILw, {from: dev});
+        // await this.router.addLiquidityETH(this.Extra.address, qQg, 0, 0, dev, now() + 60, {from: dev, value: ONEw});
+        // console.log('LIQUIDITY 500.000.000.000='+fromGwei(qQg)+' 1='+fromMwei(ONEm));
+
+        await this.router.addLiquidity(this.Extra.address, this.Usdc.address, qQg, ONEm, 0, 0, dev, now() + 60, {from: dev});
+        const reserves = await this.pair.getReserves();
+        console.log(reserves.reserve0.toString());
+        console.log(reserves.reserve1.toString());
+        console.log(reserves.blockTimestampLast.toString());
+        this.oracle = await Oracle.new({from: dev});
+        await this.oracle.setup(dev, this.Extra.address, this.pair.address, {from: dev});
+        await this.oracle.capture({from: dev});
 
     });
     describe('buy', function () {
         it('buy both tokens at $1', async function () {
             this.timeout(0);
+            let presale;
+            const swap = this.router.swapExactTokensForTokens;
+            const oracle = this.oracle, Extra = this.Extra, Usdc = this.Usdc;
+            let i = 0;
+
+            async function cap() {
+                await swap(ONEm, 0, [Usdc.address, Extra.address], user, now() + 60, {from: dev});
+                await presale.getOracleExtraPrice({from: dev});
+                const presalePrice = await presale.ExtraTokenPrice({from: dev});
+                const getPrice = await oracle.getPrice({from: dev});
+                const isValid = await oracle.isValid({from: dev});
+                if (isValid) {
+                    red("presale=" + fromGwei(presalePrice) + " oracle=" + fromGwei(getPrice));
+                }
+
+                let quoteAmounts = await presale.quoteAmounts(CEMw, dev);
+                const tokenPurchaseAmount = fromWei(quoteAmounts.tokenPurchaseAmount);
+                const limit = fromWei(quoteAmounts.limit);
+                const ReceiptInUSD = fromMwei(quoteAmounts.ReceiptInUSD);
+                const inUsdc = fromMwei(quoteAmounts.ReceiptInUSD);
+                // 30 = 75_005_500
+                const amountExtraToken = fromGwei(quoteAmounts.amountExtraToken);
+
+                // limits
+                expect(tokenPurchaseAmount).to.be.equal('100');
+                expect(limit).to.be.equal('100');
+                yellow('QUOTE: ' + tokenPurchaseAmount + ' of ' + limit + ' - total: $' + ReceiptInUSD + ' - USDC=$' + inUsdc + ' - CRONIC=' + amountExtraToken);
+            }
+
             ratio = '70'; // 70%
             ReceiptTokenPrice = toMwei('1'); // 1
-            ExtraPrice = toMwei('0.00001'); // 1
-            this.ctx = await ctx.new(startBlock, endBlock, ratio, ReceiptTokenPrice, ExtraPrice,
+            ExtraPrice = toMwei('0.01'); // 1
+            this.PreSale = await PreSale.new(startBlock, endBlock, ratio, ReceiptTokenPrice, this.oracle.address,
                 this.Token.address, this.Extra.address, this.Usdc.address, {from: dev});
-            await this.ctx.setFeeAddress(fee, {from: dev});
-            await this.Token.mint(this.ctx.address, toWei('100'), {from: dev});
-            await this.Usdc.mint(dev, toMwei('100'), {from: dev});
-            await this.Extra.mint(dev, toWei('100'), {from: dev});
+            presale = this.PreSale;
+            await this.oracle.setCaller(this.PreSale.address, {from: dev});
+            await this.PreSale.setFeeAddress(fee, {from: dev});
+            await this.PreSale.setExtraTokenPrice(ExtraPrice, {from: dev});
 
-            await this.Usdc.approve(this.ctx.address, toMwei('100'), {from: dev});
-            await this.Extra.approve(this.ctx.address, toWei('100'), {from: dev});
+            await this.Usdc.mint(MILm, {from: dev});
+            await this.Extra.mint(MILg, {from: dev});
+            await this.Token.mint(CEMw, {from: dev});
+
+            await this.Token.transfer(this.PreSale.address, CEMw, {from: dev});
+
+            await this.Usdc.approve(this.PreSale.address, MILw, {from: dev});
+            await this.Extra.approve(this.PreSale.address, MILw, {from: dev});
 
 
-            await this.ctx.setMaxTokenPurchase(toWei('100'), {from: dev});
-            let quote = toWei('100');
-            let quoteAmounts = await this.ctx.quoteAmounts(quote, dev);
+            await this.PreSale.setMaxTokenPurchase(CEMw, {from: dev});
+            await cap()
+            await cap()
+            await cap()
+            await cap()
+
+            let quoteAmounts = await presale.quoteAmounts(CEMw, dev);
             const tokenPurchaseAmount = fromWei(quoteAmounts.tokenPurchaseAmount);
             const limit = fromWei(quoteAmounts.limit);
             const ReceiptInUSD = fromMwei(quoteAmounts.ReceiptInUSD);
             const inUsdc = fromMwei(quoteAmounts.ReceiptInUSD);
-            const amountExtraToken = fromWei(quoteAmounts.amountExtraToken);
+            const amountExtraToken = fromGwei(quoteAmounts.amountExtraToken);
 
             // limits
             expect(tokenPurchaseAmount).to.be.equal('100');
             expect(limit).to.be.equal('100');
-            yellow('Limits: ' + tokenPurchaseAmount + ' of ' + limit + ' limit.');
-
-            yellow('Quote: ');
-            yellow('- price per pCROHM: $' + fromMwei(ReceiptTokenPrice));
-            yellow('- price per Cronic: $' + fromMwei(ExtraPrice));
-            yellow('Totals in USDC:');
-            yellow('- total: $' + ReceiptInUSD);
-            yellow('- to be paid in usdc: $' + inUsdc);
-            yellow('- to be paid in cronic: ' + amountExtraToken);
-
-
+            let devUsdcBalance = fromMwei( (await this.Usdc.balanceOf(dev)).toString() );
+            let devExtraBalance = fromGwei( (await this.Extra.balanceOf(dev)).toString() );
+            let devTokenBalance = fromWei( (await this.Token.balanceOf(dev)).toString() );
+            expect(devUsdcBalance).to.be.equal('1999995');
+            expect(devExtraBalance).to.be.equal('500001000000');
+            expect(devTokenBalance).to.be.equal('0');
+            green('QUOTE: ' + tokenPurchaseAmount + ' of ' + limit + ' - total: $' + ReceiptInUSD + ' - USDC=$' + inUsdc + ' - CRONIC=' + amountExtraToken);
+            await this.PreSale.buy(quoteAmounts.tokenPurchaseAmount, {from: dev});
+            devUsdcBalance = fromMwei( (await this.Usdc.balanceOf(dev)).toString() );
+            devExtraBalance = fromGwei( (await this.Extra.balanceOf(dev)).toString() );
+            devTokenBalance = fromWei( (await this.Token.balanceOf(dev)).toString() );
+            expect(devUsdcBalance).to.be.equal('1999995');
+            expect(devExtraBalance).to.be.equal('500001000000');
+            expect(devTokenBalance).to.be.equal(quoteAmounts.tokenPurchaseAmount);
         });
 
     });
