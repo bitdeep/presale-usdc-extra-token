@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "scripts": {
-    "test": "truffle test test/test.js --network dev --bail",
+    "test": "truffle compile && truffle test test/test.js --network dev --bail",
     "live": "truffle migrate --network dev --f 3 --to 3 && nodemon --exec yarn test -e sol,js"
   },
   "dependencies": {

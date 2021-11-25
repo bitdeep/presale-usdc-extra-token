@@ -93,8 +93,8 @@ const DEZg = toGwei('10');
 const CEMg = toGwei('100');
 const qMILg = toGwei('500000');
 const MILg = toGwei('1000000');
-const qQg = toGwei('500000000000');
-const Qg = toGwei('1000000000000');
+const qQg = toGwei('50000000000000');
+const Qg = toGwei('100000000000000');
 
 const ONEm = toMwei('1'); // usdc
 const DEZm = toMwei('10');
@@ -133,7 +133,7 @@ describe('PreSale', function () {
         await this.factory.createPair(this.Extra.address, this.Usdc.address);
         this.pairAddr = await this.factory.getPair(this.Extra.address, this.Usdc.address);
         this.pair = await IUniswapV2Pair.at(this.pairAddr);
-        await this.Extra.approve(this.router.address, MILw, {from: dev});
+        await this.Extra.approve(this.router.address, Qg, {from: dev});
         await this.Usdc.approve(this.router.address, MILw, {from: dev});
         // await this.router.addLiquidityETH(this.Extra.address, qQg, 0, 0, dev, now() + 60, {from: dev, value: ONEw});
         // console.log('LIQUIDITY 500.000.000.000='+fromGwei(qQg)+' 1='+fromMwei(ONEm));
@@ -159,11 +159,11 @@ describe('PreSale', function () {
             async function cap() {
                 await swap(ONEm, 0, [Usdc.address, Extra.address], user, now() + 60, {from: dev});
                 await presale.getOracleExtraPrice({from: dev});
-                const presalePrice = await presale.ExtraTokenPrice({from: dev});
+                const ExtraTokenPrice = await presale.ExtraTokenPrice({from: dev});
                 const getPrice = await oracle.getPrice({from: dev});
                 const isValid = await oracle.isValid({from: dev});
                 if (isValid) {
-                    red("presale=" + fromGwei(presalePrice) + " oracle=" + fromGwei(getPrice));
+                    red("ExtraTokenPrice=" + fromGwei(ExtraTokenPrice) + " oracle=" + fromGwei(getPrice));
                 }
 
                 let quoteAmounts = await presale.quoteAmounts(CEMw, dev);
@@ -171,7 +171,7 @@ describe('PreSale', function () {
                 const limit = fromWei(quoteAmounts.limit);
                 const ReceiptInUSD = fromMwei(quoteAmounts.ReceiptInUSD);
                 const inUsdc = fromMwei(quoteAmounts.ReceiptInUSD);
-                // 30 = 75_005_500
+                // 30 = 76_081_200
                 const amountExtraToken = fromGwei(quoteAmounts.amountExtraToken);
 
                 // limits
@@ -182,7 +182,8 @@ describe('PreSale', function () {
 
             ratio = '70'; // 70%
             ReceiptTokenPrice = toMwei('1'); // 1
-            ExtraPrice = toMwei('0.01'); // 1
+            // 30@0.000_000_391_405  = 76_647_000
+            ExtraPrice = toMwei('0.000001'); // 1
             this.PreSale = await PreSale.new(startBlock, endBlock, ratio, ReceiptTokenPrice, this.oracle.address,
                 this.Token.address, this.Extra.address, this.Usdc.address, {from: dev});
             presale = this.PreSale;
@@ -201,6 +202,7 @@ describe('PreSale', function () {
 
 
             await this.PreSale.setMaxTokenPurchase(CEMw, {from: dev});
+            await cap()
             await cap()
             await cap()
             await cap()

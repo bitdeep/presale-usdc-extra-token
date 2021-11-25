@@ -73,11 +73,12 @@ contract PreSale is ReentrancyGuard, Ownable {
     }
     // pass any pApollo and get the % amount in ExtraToken
     function quoteAmountInExtraToken(uint256 amount) public view returns(uint256){
+        if( ExtraTokenPrice == 0 ) return 0;
         uint256 amountInReceipt = quoteAmountInReceipt(amount);
         uint256 amountInUsdc = quoteAmountInUSDC(amount);
         uint256 amountInUsdcInExtraToken = amountInReceipt.sub(amountInUsdc);
 
-        return amountInUsdcInExtraToken.mul(1e12).div(ExtraTokenPrice).mul( 1e12 );
+        return amountInUsdcInExtraToken.mul(1e6).div(ExtraTokenPrice).mul( 1e6 );
     }
 
     // pass any pApollo and get quotes in USDC and ExtraToken
@@ -223,7 +224,6 @@ contract PreSale is ReentrancyGuard, Ownable {
     }
     function getOracleExtraPrice() public{
         (uint256 priceFromOracle, bool isValid) = oracle.capture();
-        if( isValid ) ExtraTokenPrice = priceFromOracle;
-        // require(isValid,"ExtraTokenPrice");
+        if( isValid && priceFromOracle > 0) ExtraTokenPrice = priceFromOracle;
     }
 }
